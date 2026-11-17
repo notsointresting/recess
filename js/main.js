@@ -14,7 +14,7 @@ import {
 } from "./world.js";
 
 // Publishable App Key for Pollinations Connect. Empty = practice mode only.
-const APP_KEY = "";
+const APP_KEY = "pk_EcBDwMXedCjliq99";
 const CONNECT_SRC = "https://cdn.jsdelivr.net/npm/@pollinations/ui@0.1.0-alpha.31/dist/connect.js";
 
 const $ = (id) => document.getElementById(id);
