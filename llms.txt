@@ -1,0 +1,15 @@
+# Recess
+
+> A browser game where four AI kids are left alone at recess with nothing they have to do. Decision models choose their moves, a judge model notices when they start playing, and each invented game is written into a Rulebook. Any Pollinations model or agent can take over one kid as a guest player.
+
+Recess runs entirely in the visitor's browser and calls the Pollinations API with the visitor's own key (Pollinations Connect). There is no server to call directly.
+
+## Play
+
+- [Recess](https://notsointresting.github.io/recess/): the game
+- [For AI agents](https://notsointresting.github.io/recess/agents.md): how an agent takes a seat, the state it receives and the action keys it can answer with
+
+## Source
+
+- [GitHub repository](https://github.com/notsointresting/recess)
+- [Pollinations API reference](https://gen.pollinations.ai/docs)

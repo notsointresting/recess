@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Recess</title>
+    <meta name="description" content="Four AI kids are left alone at recess with nothing they have to do. Watch them invent games, and collect every game in the Rulebook. Built on Pollinations.">
+    <meta property="og:title" content="Recess — AI kids left alone at recess">
+    <meta property="og:description" content="Watch AI kids invent games when nobody tells them what to do.">
+    <meta property="og:image" content="https://notsointresting.github.io/recess/assets/screenshot.png">
+    <link rel="icon" href="assets/icon.svg">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@500;700;800&family=Pixelify+Sans:wght@500;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="css/style.css">
+    <link rel="alternate" type="text/markdown" href="agents.md" title="How AI agents can play Recess">
+    <link rel="alternate" type="text/plain" href="llms.txt" title="llms.txt">
+    <script type="application/ld+json">
+    {
+        "@context": "https://schema.org",
+        "@type": "VideoGame",
+        "name": "Recess",
+        "url": "https://notsointresting.github.io/recess/",
+        "description": "Four AI kids are left alone at recess with nothing they have to do. Decision models pick their moves, and every game they invent is written into a Rulebook. Any Pollinations model or agent can take a seat as a guest player.",
+        "genre": ["Simulation", "AI"],
+        "playMode": "SinglePlayer",
+        "applicationCategory": "Game",
+        "operatingSystem": "Web browser",
+        "isAccessibleForFree": true,
+        "author": { "@type": "Person", "name": "notsointresting", "url": "https://github.com/notsointresting" },
+        "codeRepository": "https://github.com/notsointresting/recess"
+    }
+    </script>
+</head>
+<body>
+    <header class="top">
+        <a class="brand" href="./" aria-label="Recess home">
+            <svg class="brand-bell" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1v2M3 12c0-6 2-8 5-8s5 2 5 8z" fill="#ffd23f" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/><circle cx="8" cy="13.5" r="1.6" fill="currentColor"/></svg>
+            <span>Recess</span>
+        </a>
+        <p class="tagline">Four AI kids. No teacher. No task. What will they play?</p>
+        <div class="top-actions">
+            <div id="connect-slot"></div>
+            <button class="icon-btn" id="theme-btn" type="button" aria-label="Switch light or dark theme" title="Theme">🌓</button>
+        </div>
+    </header>
+
+    <main class="layout">
+        <section class="stage-col">
+            <div class="stage" id="stage">
+                <canvas id="world" aria-label="Pixel playground with four kids"></canvas>
+                <div class="bubbles" id="bubbles" aria-hidden="true"></div>
+                <div class="hud">
+                    <span class="chip" id="minute">Before recess</span>
+                    <span class="chip mode" id="mode">Practice</span>
+                </div>
+                <div class="overlay" id="intro">
+                    <div class="overlay-card">
+                        <h1>The bell is about to ring.</h1>
+                        <p class="desc">Juno, Ravi, Mia and Toby get the playground to themselves: a ball, chalk, a sandbox, swings and a big tree. Nobody tells them what to do.</p>
+                        <p class="small">When they start playing a real game, it goes into your <b>Rulebook</b>.</p>
+                        <button class="btn primary big" id="start-btn" type="button">🔔 Ring the bell</button>
+                        <p class="small muted" id="intro-mode">Practice mode uses a small built-in brain. Connect Pollinations to let real AI models decide.</p>
+                    </div>
+                </div>
+                <div class="overlay hidden" id="ending">
+                    <div class="overlay-card">
+                        <h2>Recess is over!</h2>
+                        <p id="ending-text"></p>
+                        <button class="btn primary big" id="again-btn" type="button">🔔 Ring the bell again</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="controls">
+                <button class="btn" id="pause-btn" type="button" disabled>⏸ Pause</button>
+                <div class="seg" role="group" aria-label="Speed">
+                    <button class="seg-btn active" data-speed="1" type="button">1×</button>
+                    <button class="seg-btn" data-speed="2" type="button">2×</button>
+                </div>
+                <button class="btn ghost" id="settings-btn" type="button">⚙ Brains & guests</button>
+                <span class="cost muted" id="cost"></span>
+            </div>
+
+            <ul class="cast" id="cast"></ul>
+        </section>
+
+        <aside class="side">
+            <div class="tabs" role="tablist">
+                <button class="tab active" role="tab" aria-selected="true" data-tab="chatter" type="button">Chatter</button>
+                <button class="tab" role="tab" aria-selected="false" data-tab="rulebook" type="button">Rulebook <span class="count" id="rule-count">0</span></button>
+            </div>
+            <ol class="panel chatter" id="chatter" aria-live="polite"></ol>
+            <div class="panel rulebook hidden" id="rulebook">
+                <div class="rulebook-empty" id="rulebook-empty">
+                    <p class="big-emoji">📖</p>
+                    <p><b>No games yet.</b> When the kids start following their own rules, taking turns or repeating something together, the game is written down here.</p>
+                </div>
+                <ol class="games" id="games"></ol>
+                <div class="rulebook-actions">
+                    <button class="btn ghost small" id="export-btn" type="button">⬇ Export Markdown</button>
+                    <button class="btn ghost small" id="clear-btn" type="button">Clear</button>
+                </div>
+            </div>
+        </aside>
+    </main>
+
+    <footer class="foot">
+        <a href="https://pollinations.ai" target="_blank" rel="noopener"><img src="assets/badge-made-with.svg" alt="Made with pollinations.ai" width="174" height="20"></a>
+        <span>Inspired by <a href="https://arxiv.org/abs/2610.07130" target="_blank" rel="noopener">“Is this machine playing?”</a></span>
+        <a href="agents.md">For AI agents</a>
+        <a href="https://github.com/notsointresting/recess" target="_blank" rel="noopener">Source</a>
+    </footer>
+
+    <dialog id="settings">
+        <form method="dialog" class="dialog-body">
+            <h2>Brains & guests</h2>
+            <label class="field">
+                <span>Decision model (picks what each kid does)</span>
+                <select id="decision-model"></select>
+                <small class="muted">Decision models answer with a choice and a probability for every option, so you can see what each kid almost did.</small>
+            </label>
+            <fieldset class="field">
+                <legend>Guest player</legend>
+                <small class="muted">Hand one kid to any Pollinations text model or published agent. It sees the same playground and answers with an action.</small>
+                <div class="row">
+                    <select id="guest-kid" aria-label="Kid to hand over"><option value="">Nobody</option></select>
+                    <input id="guest-model" placeholder="model or agent id, e.g. openai/gpt-5.4-mini" aria-label="Guest model or agent id" autocomplete="off" spellcheck="false">
+                </div>
+            </fieldset>
+            <p class="small muted">Models also used: <code>openai/gpt-5-nano</code> writes what the kids say, <code>respan/span-01-lite</code> checks whether they are playing, and <code>openai/gpt-6-luna</code> writes Rulebook entries.</p>
+            <div class="dialog-actions">
+                <button class="btn primary" value="save">Done</button>
+            </div>
+        </form>
+    </dialog>
+
+    <div class="toasts" id="toasts" role="status"></div>
+
+    <script type="module" src="js/main.js"></script>
+</body>
+</html>
