@@ -1,15 +1,15 @@
 import { MODELS, liveBrain, practiceBrain } from "./brains.js";
 import { countSigns } from "./play.js";
-import { burst, drawBackground, portrait, render, stepParticles } from "./render.js";
+import { burst, drawBackground, portrait, render, stepCamera, stepParticles, targetCamera, toView } from "./render.js";
 import {
-    H,
     RECESS_TICKS,
-    W,
-    ZONES,
+    MAX_ROOMS,
     applyAction,
     describeEvent,
     kidById,
     newWorld,
+    nextLot,
+    placeOf,
     step,
 } from "./world.js";
 
@@ -36,11 +36,18 @@ const store = {
 const settings = {
     decisionModel: MODELS.decision[0].id,
     guest: { kid: "", model: "" },
+    allowBuild: true,
     ...store.get("settings", {}),
 };
+const rooms = store.get("rooms", []);
+const saveRooms = () =>
+    store.set(
+        "rooms",
+        rooms.map(({ pending, ...r }) => r),
+    );
 let apiKey = null;
 let speed = 1;
-let world = newWorld();
+let world = newWorld(rooms, settings.allowBuild);
 let running = false;
 let paused = false;
 let rulebook = store.get("rulebook", []);
@@ -54,6 +61,7 @@ const bg = drawBackground(document.createElement("canvas"));
 canvas.width = bg.width;
 canvas.height = bg.height;
 const ctx = canvas.getContext("2d");
+const cam = targetCamera(world);
 
 const bubbleEls = Object.fromEntries(
     world.kids.map((k) => {
@@ -73,44 +81,69 @@ function frame(now) {
         step(world, dt * speed);
         stepParticles(fx, dt);
     }
-    render(ctx, bg, world, now / 1000, fx);
+    stepCamera(cam, targetCamera(world), dt);
+    render(ctx, bg, world, now / 1000, fx, cam);
     placeBubbles(now);
     requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
 
-// Keep speech bubbles above their kid without covering each other.
+// Keep speech bubbles near their kid without covering each other or the HUD.
 function placeBubbles(now) {
     const stage = $("stage");
     const sw = stage.clientWidth;
     const sh = stage.clientHeight;
     const placed = [];
-    const shown = world.kids
-        .filter((k) => lines[k.id]?.until > now)
-        .sort((a, b) => b.y - a.y);
+    const shown = world.kids.filter((k) => lines[k.id]?.until > now).sort((a, b) => b.y - a.y);
     for (const kid of world.kids) bubbleEls[kid.id].classList.toggle("show", shown.includes(kid));
+    const hits = (b) =>
+        b.top < 34 ||
+        b.left < 2 ||
+        b.right > sw - 2 ||
+        placed.some(
+            (p) => b.left < p.right + 4 && b.right > p.left - 4 && b.top < p.bottom + 4 && b.bottom > p.top - 4,
+        );
     for (const kid of shown) {
         const el = bubbleEls[kid.id];
         const w = el.offsetWidth;
         const h = el.offsetHeight;
-        const x = Math.min(Math.max((kid.x / W) * sw, w / 2 + 4), sw - w / 2 - 4);
-        let bottom = ((kid.y - 27) / H) * sh;
-        for (const p of placed)
-            if (Math.abs(p.x - x) < (p.w + w) / 2 + 4 && bottom > p.top - 4 && bottom - h < p.bottom + 4)
-                bottom = p.top - 6;
-        bottom = Math.max(bottom, h + 4);
-        placed.push({ x, w, top: bottom - h, bottom });
+        const head = toView(cam, kid.x, kid.y - 27);
+        const feet = toView(cam, kid.x, kid.y + 3);
+        const cx = head.x * sw;
+        const base = head.y * sh;
+        const below = feet.y * sh + h + 6;
+        // Above the head first, then beside it, then higher, then under the feet.
+        const candidates = [
+            [cx, base],
+            [cx - w / 2 - 14, base + h / 2],
+            [cx + w / 2 + 14, base + h / 2],
+            [cx, base - h - 6],
+            [cx, below],
+            [cx - w / 2 - 14, below],
+            [cx + w / 2 + 14, below],
+            [cx - w / 2 - 14, base + h * 1.5 + 6],
+            [cx + w / 2 + 14, base + h * 1.5 + 6],
+        ].map(([x, bottom]) => ({ left: x - w / 2, right: x + w / 2, top: bottom - h, bottom, x }));
+        const box = candidates.find((b) => !hits(b)) ?? candidates[4];
+        const x = Math.min(Math.max(box.x, w / 2 + 4), sw - w / 2 - 4);
+        const bottom = Math.max(box.bottom, h + 36);
+        placed.push({ left: x - w / 2, right: x + w / 2, top: bottom - h, bottom });
         el.style.left = `${x}px`;
         el.style.top = `${bottom}px`;
     }
 }
 
 // ---------- Cast cards ----------
-const label = (action) =>
-    action
+function label(action) {
+    const [head, roomId, ...rest] = action.split("_");
+    const room = world.rooms.find((r) => r.id === roomId);
+    if (room && head === "do") return `${room.activities.find((a) => a.key === rest.join("_"))?.text ?? "play"}`;
+    if (room && head === "go") return `go to ${room.name}`;
+    return action
         .replace(/_(juno|ravi|mia|toby)$/, (_, id) => ` ${kidById(world, id).name}`)
         .replace(/^go_/, "go to ")
         .replaceAll("_", " ");
+}
 
 function renderCast() {
     $("cast").replaceChildren(
@@ -129,7 +162,7 @@ function renderCast() {
                 tag.title = settings.guest.model;
                 li.querySelector(".kid-name").append(tag);
             }
-            li.querySelector(".kid-where").textContent = `at ${ZONES[kid.zone].label}`;
+            li.querySelector(".kid-where").textContent = `at ${placeOf(world, kid.zone).label}`;
             if (!kid.probs) {
                 const p = document.createElement("p");
                 p.className = "intent-empty";
@@ -244,6 +277,20 @@ function exportMarkdown() {
             `> ${g.spark}`,
             "",
         ]),
+        ...(rooms.length
+            ? [
+                  "# Places the kids built",
+                  "",
+                  ...rooms.flatMap((r) => [
+                      `## ${r.emoji} ${r.name}`,
+                      "",
+                      `*Built by ${kidById(world, r.by)?.name} at minute ${r.minute}*`,
+                      "",
+                      ...r.activities.map((a) => `- ${a.text}`),
+                      "",
+                  ]),
+              ]
+            : []),
     ].join("\n");
     const a = document.createElement("a");
     a.href = URL.createObjectURL(new Blob([md], { type: "text/markdown" }));
@@ -287,16 +334,97 @@ async function tick() {
             bubbleEls[e.kid].querySelector("b").textContent = `${kidById(world, e.kid).name}:`;
             bubbleEls[e.kid].append(e.line);
         }
-        if (e.verb === "make_rule" && e.line)
-            world.rules.push({ text: e.line, by: e.kid, tick: world.tick });
+        if (e.verb === "make_rule" && e.line) world.rules.push({ text: e.line, by: e.kid, tick: world.tick });
     });
     world.rules = world.rules.slice(-6);
     world.log.push(...events);
     addChatter(events);
+    const builder = events.find((e) => e.verb === "build");
+    if (builder) await buildRoom(brain, kidById(world, builder.kid));
     await spotGame(brain);
     world.tick++;
     $("minute").textContent = `Minute ${Math.min(world.tick + 1, RECESS_TICKS)} of ${RECESS_TICKS}`;
     await sleep(Math.max(0, 3200 / speed - (performance.now() - started)));
+}
+
+async function buildRoom(brain, kid) {
+    const lot = nextLot(world);
+    if (!lot) return;
+    let design;
+    try {
+        design = await brain.designRoom(world, kid);
+    } catch (err) {
+        console.warn(err);
+        chatterNote(`🧱 ${kid.name} tried to build something, but gave up.`);
+        return;
+    }
+    const room = {
+        ...design,
+        id: `r${rooms.reduce((n, r) => Math.max(n, Number(r.id.slice(1))), 0) + 1}`,
+        lot,
+        by: kid.id,
+        minute: world.tick + 1,
+        mode: mode(),
+        pending: true,
+    };
+    rooms.push(room);
+    saveRooms();
+    const spot = placeOf(world, room.id);
+    kid.zone = room.id;
+    kid.tx = spot.x;
+    kid.ty = spot.y;
+    burst(fx, spot.x, spot.y - 10);
+    toast(`🏗 ${kid.name} built the ${room.emoji} ${room.name}!`);
+    chatterNote(
+        `🏗 ${kid.name} built the ${room.emoji} ${room.name}: ${room.activities.map((a) => a.text).join(", ")}.`,
+    );
+    renderWorld();
+    brain
+        .paint(room)
+        .then((art) => {
+            if (art) room.art = art;
+        })
+        .catch((err) => console.warn("painting failed", err))
+        .finally(() => {
+            room.pending = false;
+            saveRooms();
+            renderWorld();
+        });
+}
+
+function renderWorld() {
+    $("room-count").textContent = rooms.length;
+    $("world-empty").classList.toggle("hidden", rooms.length > 0);
+    $("rooms").replaceChildren(
+        ...rooms.map((room) => {
+            const li = document.createElement("li");
+            li.className = "room";
+            li.style.setProperty("--floor", room.floor);
+            const art = document.createElement(room.art ? "img" : "div");
+            art.className = "room-art";
+            if (room.art) {
+                art.src = room.art;
+                art.alt = "";
+            } else art.textContent = room.pending ? "🚧" : room.emoji;
+            const body = document.createElement("div");
+            const h = document.createElement("h3");
+            h.textContent = `${room.emoji} ${room.name}`;
+            const meta = document.createElement("p");
+            meta.className = "meta";
+            meta.textContent = `built by ${kidById(world, room.by)?.name ?? "a kid"} · minute ${room.minute}${room.pending ? " · painting…" : ""}`;
+            const ul = document.createElement("ul");
+            for (const a of room.activities) {
+                const item = document.createElement("li");
+                item.textContent = a.text;
+                ul.append(item);
+            }
+            body.append(h, meta, ul);
+            li.append(art, body);
+            return li;
+        }),
+    );
+    $("room-left").textContent =
+        rooms.length >= MAX_ROOMS ? "The playground is full." : `${MAX_ROOMS - rooms.length} empty lots left.`;
 }
 
 async function spotGame(brain) {
@@ -323,6 +451,7 @@ async function spotGame(brain) {
     });
     store.set("rulebook", rulebook);
     renderRulebook();
+    renderWorld();
     const center = found.events.length ? kidById(world, found.events.at(-1).kid) : world.kids[0];
     burst(fx, center.x, center.y - 18);
     toast(`📖 New game in the Rulebook: ${game.emoji} ${game.name}`);
@@ -331,7 +460,7 @@ async function spotGame(brain) {
 
 async function runRecess() {
     if (running) return;
-    world = newWorld();
+    world = newWorld(rooms, settings.allowBuild);
     for (const k of Object.keys(lines)) delete lines[k];
     renderCast();
     $("minute").textContent = `Minute 1 of ${RECESS_TICKS}`;
@@ -345,6 +474,7 @@ async function runRecess() {
     fx.ringingUntil = performance.now() + 1800;
     chatterNote(`🔔 The bell rang. Recess starts (${mode() === "live" ? "live AI" : "practice brain"}).`);
     const before = rulebook.length;
+    const roomsBefore = rooms.length;
     try {
         while (world.tick < RECESS_TICKS && running) {
             while (paused) await sleep(200);
@@ -352,10 +482,16 @@ async function runRecess() {
         }
         fx.ringingUntil = performance.now() + 1800;
         const found = rulebook.length - before;
-        $("ending-text").textContent =
+        const built = rooms.length - roomsBefore;
+        const gamesText =
             found > 0
-                ? `The kids invented ${found} new game${found > 1 ? "s" : ""}. Open the Rulebook to read ${found > 1 ? "them" : "it"}.`
-                : "No new games this time. Sometimes kids just hang out. Try again, or let a different model decide.";
+                ? `The kids invented ${found} new game${found > 1 ? "s" : ""}.`
+                : "No new games this time. Sometimes kids just hang out.";
+        const roomsText =
+            built > 0
+                ? ` They built ${built} new place${built > 1 ? "s" : ""}, and they'll still be there next recess.`
+                : "";
+        $("ending-text").textContent = gamesText + roomsText;
         $("ending").classList.remove("hidden");
     } catch (err) {
         console.error(err);
@@ -370,8 +506,10 @@ async function runRecess() {
 
 function errorText(err) {
     if (err.status === 401) return "Your Pollinations connection expired. Connect again to keep playing.";
-    if (err.status === 402) return "Out of Pollen for this app. Top up or raise the app's budget, then ring the bell again.";
-    if (err.status === 403) return "This key can't use one of the models. Pick Microsoft Decision 1 in Brains & guests, or reconnect.";
+    if (err.status === 402)
+        return "Out of Pollen for this app. Top up or raise the app's budget, then ring the bell again.";
+    if (err.status === 403)
+        return "This key can't use one of the models. Pick Microsoft Decision 1 in Brains & guests, or reconnect.";
     return `Something went wrong: ${err.message}`;
 }
 
@@ -383,11 +521,11 @@ function setMode() {
         : "Practice";
     $("mode").classList.toggle("live", live);
     $("intro-mode").textContent = live
-        ? "Connected: real AI models decide, and each recess costs you about 0.03 Pollen."
+        ? "Connected: real AI models decide and build, and each recess costs you about 0.03–0.08 Pollen."
         : APP_KEY
           ? "Practice mode uses a small built-in brain. Connect Pollinations (top right) to let real AI models decide."
           : "Practice mode uses a small built-in brain. Live AI mode is coming soon.";
-    $("cost").textContent = live ? "≈ 0.03 Pollen per recess, paid from your own Pollen" : "Practice mode is free";
+    $("cost").textContent = live ? "≈ 0.03–0.08 Pollen per recess, paid from your own Pollen" : "Practice mode is free";
 }
 
 function mountConnect() {
@@ -400,7 +538,7 @@ function mountConnect() {
     el.setAttribute("app-key", APP_KEY);
     el.setAttribute("budget", "5");
     el.setAttribute("expiry", "7");
-    el.setAttribute("models", "decision,text");
+    el.setAttribute("models", "decision,text,image");
     el.addEventListener("change", () => {
         apiKey = el.apiKey ?? null;
         setMode();
@@ -411,13 +549,16 @@ function mountConnect() {
 
 function fillSettings() {
     $("decision-model").replaceChildren(
-        ...MODELS.decision.map((m) => new Option(`${m.label} (${m.note})`, m.id, false, m.id === settings.decisionModel)),
+        ...MODELS.decision.map(
+            (m) => new Option(`${m.label} (${m.note})`, m.id, false, m.id === settings.decisionModel),
+        ),
     );
     $("guest-kid").replaceChildren(
         new Option("Nobody", ""),
         ...world.kids.map((k) => new Option(k.name, k.id, false, k.id === settings.guest.kid)),
     );
     $("guest-model").value = settings.guest.model;
+    $("allow-build").checked = settings.allowBuild;
 }
 
 $("settings-btn").addEventListener("click", () => {
@@ -427,6 +568,8 @@ $("settings-btn").addEventListener("click", () => {
 $("settings").addEventListener("close", () => {
     settings.decisionModel = $("decision-model").value;
     settings.guest = { kid: $("guest-kid").value, model: $("guest-model").value.trim() };
+    settings.allowBuild = $("allow-build").checked;
+    world.allowBuild = settings.allowBuild;
     store.set("settings", settings);
     setMode();
     renderCast();
@@ -449,14 +592,22 @@ for (const t of document.querySelectorAll(".tab"))
             o.classList.toggle("active", o === t);
             o.setAttribute("aria-selected", String(o === t));
         }
-        $("chatter").classList.toggle("hidden", t.dataset.tab !== "chatter");
-        $("rulebook").classList.toggle("hidden", t.dataset.tab !== "rulebook");
+        for (const name of ["chatter", "rulebook", "world-panel"])
+            $(name).classList.toggle("hidden", t.dataset.tab !== name);
     });
 $("export-btn").addEventListener("click", exportMarkdown);
+$("flatten-btn").addEventListener("click", () => {
+    if (running) return toast("Wait for recess to end before flattening the world.");
+    rooms.length = 0;
+    saveRooms();
+    renderWorld();
+    toast("The extra places are gone. Back to the plain playground.");
+});
 $("clear-btn").addEventListener("click", () => {
     rulebook = [];
     store.set("rulebook", rulebook);
     renderRulebook();
+    renderWorld();
 });
 $("theme-btn").addEventListener("click", () => {
     const root = document.documentElement;
@@ -473,3 +624,4 @@ mountConnect();
 setMode();
 renderCast();
 renderRulebook();
+renderWorld();

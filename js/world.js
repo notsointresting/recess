@@ -26,8 +26,7 @@ export const KIDS = [
     {
         id: "juno",
         name: "Juno",
-        personality:
-            "bold and bossy in a fun way, loves inventing rules and keeping score",
+        personality: "bold and bossy in a fun way, loves inventing rules and keeping score",
         style: "pigtails",
         colors: {
             skin: "#f6c9a4",
@@ -40,8 +39,7 @@ export const KIDS = [
     {
         id: "ravi",
         name: "Ravi",
-        personality:
-            "a curious builder who loves digging, making things and asking why",
+        personality: "a curious builder who loves digging, making things and asking why",
         style: "spiky",
         colors: {
             skin: "#c08259",
@@ -54,8 +52,7 @@ export const KIDS = [
     {
         id: "mia",
         name: "Mia",
-        personality:
-            "a dreamy artist who draws on everything and turns games into stories",
+        personality: "a dreamy artist who draws on everything and turns games into stories",
         style: "bun",
         colors: {
             skin: "#ffdcc2",
@@ -68,8 +65,7 @@ export const KIDS = [
     {
         id: "toby",
         name: "Toby",
-        personality:
-            "shy at first, likes watching and copying, warms up when someone invites him",
+        personality: "shy at first, likes watching and copying, warms up when someone invites him",
         style: "cap",
         colors: {
             skin: "#eab48d",
@@ -102,16 +98,68 @@ const FRIEND_ACTIONS = {
     chase: (n) => `chase ${n}`,
 };
 
-export function actionsFor(kid) {
+// Places the kids build. Each room fills one 96x81 lot next to the playground
+// (the playground itself is 3x2 lots), in this order.
+export const LOT = { w: 96, h: 81 };
+export const MAX_ROOMS = 8;
+const LOTS = [
+    [3, 0],
+    [3, 1],
+    [2, 2],
+    [1, 2],
+    [3, 2],
+    [0, 2],
+    [-1, 0],
+    [-1, 1],
+];
+
+export function roomRect(room) {
+    return { x: room.lot[0] * LOT.w, y: room.lot[1] * LOT.h, w: LOT.w, h: LOT.h };
+}
+
+export function nextLot(world) {
+    return LOTS[world.rooms.length] ?? null;
+}
+
+// Where a zone key points: a fixed playground spot or a built room.
+export function placeOf(world, key) {
+    if (ZONES[key]) return ZONES[key];
+    const room = world.rooms.find((r) => r.id === key);
+    if (!room) return ZONES.field;
+    const r = roomRect(room);
+    return { x: r.x + r.w / 2, y: r.y + r.h / 2 + 10, label: `the ${room.name}` };
+}
+
+export const canBuild = (world) =>
+    world.allowBuild && world.rooms.length < MAX_ROOMS && world.tick >= 3 && world.tick - world.lastBuildTick >= 8;
+
+export function actionsFor(kid, world) {
     const out = { ...SOLO_ACTIONS };
     for (const other of KIDS)
         if (other.id !== kid.id)
-            for (const [verb, text] of Object.entries(FRIEND_ACTIONS))
-                out[`${verb}_${other.id}`] = text(other.name);
+            for (const [verb, text] of Object.entries(FRIEND_ACTIONS)) out[`${verb}_${other.id}`] = text(other.name);
+    if (world && canBuild(world)) out.build = "build a brand-new place next to the playground and invent what it is";
+    for (const room of world?.rooms ?? []) {
+        out[`go_${room.id}`] = `walk over to the ${room.name}`;
+        for (const a of room.activities) out[`do_${room.id}_${a.key}`] = `${a.text} (at the ${room.name})`;
+    }
     return out;
 }
 
-export function newWorld() {
+// Smallest box holding the playground and every built room.
+export function bounds(world) {
+    let [x0, y0, x1, y1] = [0, 0, W, H];
+    for (const room of world.rooms) {
+        const r = roomRect(room);
+        x0 = Math.min(x0, r.x);
+        y0 = Math.min(y0, r.y);
+        x1 = Math.max(x1, r.x + r.w);
+        y1 = Math.max(y1, r.y + r.h);
+    }
+    return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
+}
+
+export function newWorld(rooms = [], allowBuild = true) {
     const kids = KIDS.map((k, i) => {
         const x = 144 + SPREAD[i][0] * 1.4;
         const y = 150 + SPREAD[i][1] * 0.4;
@@ -138,13 +186,16 @@ export function newWorld() {
         log: [],
         invites: {},
         lastGameTick: -99,
+        lastBuildTick: -99,
+        rooms,
+        allowBuild,
     };
 }
 
 export const kidById = (world, id) => world.kids.find((k) => k.id === id);
 
-function moveTo(kid, zone, i) {
-    const z = ZONES[zone];
+function moveTo(world, kid, zone, i) {
+    const z = placeOf(world, zone);
     kid.zone = zone;
     kid.tx = z.x + SPREAD[i][0];
     kid.ty = z.y + SPREAD[i][1];
@@ -167,6 +218,8 @@ const EMOTES = {
     make_rule: "!",
     swing: "♪",
     sit_and_watch: "…",
+    build: "⚒",
+    do: "✦",
     chase: "»",
     copy: "=",
     kick_ball: "★",
@@ -178,13 +231,26 @@ const EMOTES = {
 export function applyAction(world, kid, action, depth = 0) {
     const i = world.kids.indexOf(kid);
     const [head, ...rest] = action.split("_");
-    const verb = head in FRIEND_ACTIONS ? head : action;
-    const targetId = head in FRIEND_ACTIONS ? rest.join("_") : null;
-    const target = targetId ? kidById(world, targetId) : null;
+    const verb = head in FRIEND_ACTIONS || head === "do" ? head : action;
+    const targetId = head in FRIEND_ACTIONS || head === "do" ? rest[0] : null;
+    const target = targetId && verb !== "do" ? kidById(world, targetId) : null;
     const event = { tick: world.tick, kid: kid.id, action, verb, target: targetId };
 
-    if (verb.startsWith("go")) moveTo(kid, action.slice(3), i);
-    else if (verb === "kick_ball") {
+    if (verb.startsWith("go")) moveTo(world, kid, action.slice(3), i);
+    else if (verb === "do") {
+        const room = world.rooms.find((r) => r.id === targetId);
+        const activity = room?.activities.find((a) => a.key === rest.slice(1).join("_"));
+        if (room) moveTo(world, kid, room.id, i);
+        event.object = activity?.text ?? "play";
+    } else if (verb === "build") {
+        // Walk toward the empty lot; main.js invents and places the room.
+        const lot = nextLot(world);
+        if (lot) {
+            kid.tx = Math.min(Math.max(lot[0] * LOT.w + LOT.w / 2, 20), W - 20);
+            kid.ty = Math.min(Math.max(lot[1] * LOT.h + LOT.h / 2, 50), H - 8);
+        }
+        world.lastBuildTick = world.tick;
+    } else if (verb === "kick_ball") {
         kid.tx = world.ball.x + (i % 2 ? 6 : -6);
         kid.ty = world.ball.y + 2;
         kid.zone = nearestZone(world.ball.x, world.ball.y);
@@ -195,7 +261,7 @@ export function applyAction(world, kid, action, depth = 0) {
         world.ball.ty = dest.y + (to ? -2 : 4);
         event.target = to ? to.id : "wall";
     } else if (verb === "draw_chalk") {
-        if (kid.zone !== "chalk") moveTo(kid, "chalk", i);
+        if (kid.zone !== "chalk") moveTo(world, kid, "chalk", i);
         world.chalk.push({
             kind: CHALK_KINDS[(world.chalk.length + i) % CHALK_KINDS.length],
             x: 106 + ((world.chalk.length * 23 + i * 11) % 70),
@@ -206,7 +272,7 @@ export function applyAction(world, kid, action, depth = 0) {
         if (world.chalk.length > 14) world.chalk.shift();
         event.object = world.chalk.at(-1).kind;
     } else if (verb === "dig_sand") {
-        if (kid.zone !== "sandbox") moveTo(kid, "sandbox", i);
+        if (kid.zone !== "sandbox") moveTo(world, kid, "sandbox", i);
         const prev = world.sand.find((s) => s.by === kid.id);
         if (prev) prev.h = Math.min(prev.h + 2, 9);
         else
@@ -217,7 +283,7 @@ export function applyAction(world, kid, action, depth = 0) {
                 by: kid.id,
             });
     } else if (verb === "swing") {
-        if (kid.zone !== "swings") moveTo(kid, "swings", i);
+        if (kid.zone !== "swings") moveTo(world, kid, "swings", i);
         kid.swinging = true;
     } else if (verb === "invite") {
         kid.tx = target.tx + (kid.tx < target.tx ? -12 : 12);
@@ -231,8 +297,7 @@ export function applyAction(world, kid, action, depth = 0) {
         target.chasedBy = kid.id;
     } else if (verb === "copy") {
         const theirs = target.history.at(-1);
-        const copyable =
-            theirs && !theirs.startsWith("copy") && !theirs.startsWith("invite");
+        const copyable = theirs && !theirs.startsWith("copy") && !theirs.startsWith("invite");
         if (depth === 0 && copyable) {
             const inner = applyAction(world, kid, theirs, 1);
             event.copied = inner.action;
@@ -280,8 +345,12 @@ function phrase(world, verb, action, target, object) {
             return "made up a rule";
         case "sit_and_watch":
             return "sat and watched";
+        case "build":
+            return "started building something new";
+        case "do":
+            return `went to ${placeOf(world, target).label} to ${object}`;
         default:
-            return `went to ${ZONES[action.slice(3)]?.label ?? "somewhere"}`;
+            return `went to ${placeOf(world, action.slice(3)).label}`;
     }
 }
 
@@ -289,8 +358,8 @@ export function describeEvent(world, e) {
     const who = kidById(world, e.kid).name;
     if (!e.copied) return `${who} ${phrase(world, e.verb, e.action, e.target, e.object)}`;
     const [head, ...rest] = e.copied.split("_");
-    const verb = head in FRIEND_ACTIONS ? head : e.copied;
-    const inner = phrase(world, verb, e.copied, rest.join("_") || e.target, e.object);
+    const verb = head in FRIEND_ACTIONS || head === "do" ? head : e.copied;
+    const inner = phrase(world, verb, e.copied, (head === "do" ? rest[0] : rest.join("_")) || e.target, e.object);
     return `${who} copied ${kidById(world, e.target).name} and ${inner}`;
 }
 
@@ -302,16 +371,28 @@ export function stateText(world) {
             .map((z) => z.label)
             .join(", ")}. There is one ball.`,
     ];
-    for (const k of world.kids) {
-        const recent = k.history.slice(-3).map((a) => a.replaceAll("_", " ")).join(", ");
+    for (const room of world.rooms)
         lines.push(
-            `${k.name} (${k.personality}) is at ${ZONES[k.zone].label}. Recently: ${recent || "nothing yet"}.`,
+            `${kidById(world, room.by)?.name ?? "A kid"} built the ${room.name}: ${room.look} Things to do there: ${room.activities.map((a) => a.text).join("; ")}.`,
+        );
+    if (canBuild(world))
+        lines.push(
+            `There is empty space next to the playground; any kid could build a new place there (${world.rooms.length} of ${MAX_ROOMS} built).`,
+        );
+    for (const k of world.kids) {
+        const recent = k.history
+            .slice(-3)
+            .map((a) => a.replaceAll("_", " "))
+            .join(", ");
+        lines.push(
+            `${k.name} (${k.personality}) is at ${placeOf(world, k.zone).label}. Recently: ${recent || "nothing yet"}.`,
         );
     }
     if (world.rules.length)
-        lines.push(`Rules the kids made up: ${world.rules.map((r) => `"${r.text}" (${kidById(world, r.by).name})`).join("; ")}.`);
-    if (world.chalk.length)
-        lines.push(`Chalk drawings on the court: ${world.chalk.map((c) => c.kind).join(", ")}.`);
+        lines.push(
+            `Rules the kids made up: ${world.rules.map((r) => `"${r.text}" (${kidById(world, r.by).name})`).join("; ")}.`,
+        );
+    if (world.chalk.length) lines.push(`Chalk drawings on the court: ${world.chalk.map((c) => c.kind).join(", ")}.`);
     const pending = Object.entries(world.invites).map(
         ([to, from]) => `${kidById(world, from).name} invited ${kidById(world, to).name}`,
     );

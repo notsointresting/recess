@@ -12,7 +12,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@500;700;800&family=Pixelify+Sans:wght@500;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="css/style.css?v=2">
+    <link rel="stylesheet" href="css/style.css?v=4">
     <link rel="alternate" type="text/markdown" href="agents.md" title="How AI agents can play Recess">
     <link rel="alternate" type="text/plain" href="llms.txt" title="llms.txt">
     <script type="application/ld+json">
@@ -57,8 +57,8 @@
                 <div class="overlay" id="intro">
                     <div class="overlay-card">
                         <h1>The bell is about to ring.</h1>
-                        <p class="desc">Juno, Ravi, Mia and Toby get the playground to themselves: a ball, chalk, a sandbox, swings and a big tree. Nobody tells them what to do.</p>
-                        <p class="small">When they start playing a real game, it goes into your <b>Rulebook</b>.</p>
+                        <p class="desc">Juno, Ravi, Mia and Toby get the playground to themselves: a ball, chalk, a sandbox, swings and a big tree. Nobody tells them what to do, and they can even build new places.</p>
+                        <p class="small">Games they invent go into your <b>Rulebook</b>. Places they build stay in your <b>World</b>.</p>
                         <button class="btn primary big" id="start-btn" type="button">🔔 Ring the bell</button>
                         <p class="small muted" id="intro-mode">Practice mode uses a small built-in brain. Connect Pollinations to let real AI models decide.</p>
                     </div>
@@ -89,6 +89,7 @@
             <div class="tabs" role="tablist">
                 <button class="tab active" role="tab" aria-selected="true" data-tab="chatter" type="button">Chatter</button>
                 <button class="tab" role="tab" aria-selected="false" data-tab="rulebook" type="button">Rulebook <span class="count" id="rule-count">0</span></button>
+                <button class="tab" role="tab" aria-selected="false" data-tab="world-panel" type="button">World <span class="count teal" id="room-count">0</span></button>
             </div>
             <ol class="panel chatter" id="chatter" aria-live="polite"></ol>
             <div class="panel rulebook hidden" id="rulebook">
@@ -100,6 +101,17 @@
                 <div class="rulebook-actions">
                     <button class="btn ghost small" id="export-btn" type="button">⬇ Export Markdown</button>
                     <button class="btn ghost small" id="clear-btn" type="button">Clear</button>
+                </div>
+            </div>
+            <div class="panel world-panel hidden" id="world-panel">
+                <div class="rulebook-empty" id="world-empty">
+                    <p class="big-emoji">🏗️</p>
+                    <p><b>Nothing built yet.</b> When a kid decides to build, they invent a new place next to the playground, and everyone can play there. The world is saved for your next recess.</p>
+                </div>
+                <ol class="rooms" id="rooms"></ol>
+                <div class="rulebook-actions">
+                    <span class="small muted" id="room-left"></span>
+                    <button class="btn ghost small" id="flatten-btn" type="button">Flatten world</button>
                 </div>
             </div>
         </aside>
@@ -128,7 +140,8 @@
                     <input id="guest-model" placeholder="model or agent id, e.g. openai/gpt-5.4-mini" aria-label="Guest model or agent id" autocomplete="off" spellcheck="false">
                 </div>
             </fieldset>
-            <p class="small muted">Models also used: <code>openai/gpt-5-nano</code> writes what the kids say, <code>respan/span-01-lite</code> checks whether they are playing, and <code>openai/gpt-6-luna</code> writes Rulebook entries.</p>
+            <label class="check"><input type="checkbox" id="allow-build"> Let the kids build new places</label>
+            <p class="small muted">Models also used: <code>openai/gpt-5-nano</code> writes what the kids say, <code>respan/span-01-lite</code> checks whether they are playing, and <code>openai/gpt-6-luna</code> writes Rulebook entries and designs new places, and <code>flux.2-klein</code> paints them.</p>
             <div class="dialog-actions">
                 <button class="btn primary" value="save">Done</button>
             </div>
@@ -137,6 +150,6 @@
 
     <div class="toasts" id="toasts" role="status"></div>
 
-    <script type="module" src="js/main.js?v=2"></script>
+    <script type="module" src="js/main.js?v=4"></script>
 </body>
 </html>

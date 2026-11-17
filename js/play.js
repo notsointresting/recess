@@ -19,14 +19,18 @@ export function recent(world) {
 // Returns which signs of play the raw event log shows, plus the dominant toy.
 export function countSigns(world) {
     const events = recent(world);
-    const verbOf = (e) => (e.copied ?? e.action).split("_").slice(0, 2).join("_");
+    const verbOf = (e) => {
+        const a = e.copied ?? e.action;
+        return a.startsWith("do_") ? a : a.split("_").slice(0, 2).join("_");
+    };
     const counts = {};
     const doers = {};
     for (const e of events) {
         const v = verbOf(e);
-        if (v.startsWith("go") || v.startsWith("sit") || v.startsWith("invite")) continue;
+        if (v.startsWith("go") || v.startsWith("sit") || v.startsWith("invite") || v === "build") continue;
         counts[v] = (counts[v] ?? 0) + 1;
-        (doers[v] ??= new Set()).add(e.kid);
+        doers[v] ??= new Set();
+        doers[v].add(e.kid);
     }
     const [topVerb = null, topCount = 0] = Object.entries(counts).sort((a, b) => b[1] - a[1])[0] ?? [];
     const kicks = events.filter((e) => verbOf(e) === "kick_ball" && e.target !== "wall");
@@ -37,10 +41,11 @@ export function countSigns(world) {
         together: events.some((e) => e.joined) || events.filter((e) => e.copied).length >= 2,
         rules: world.rules.some((r) => r.tick > world.tick - WINDOW),
     };
-    const theme =
-        { kick_ball: "ball", draw_chalk: "chalk", dig_sand: "sand", swing: "swings", chase: "chase" }[
-            topVerb?.startsWith("chase") ? "chase" : topVerb
-        ] ?? "mixed";
+    const theme = topVerb?.startsWith("do_")
+        ? topVerb.split("_")[1]
+        : ({ kick_ball: "ball", draw_chalk: "chalk", dig_sand: "sand", swing: "swings", chase: "chase" }[
+              topVerb?.startsWith("chase") ? "chase" : topVerb
+          ] ?? "mixed");
     return { signs, score: Object.values(signs).filter(Boolean).length, theme, events };
 }
 

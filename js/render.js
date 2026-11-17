@@ -1,5 +1,5 @@
 // Pixel-art playground and kids, drawn in code (no image assets).
-import { H, W } from "./world.js";
+import { H, W, bounds, roomRect } from "./world.js";
 
 export const SCALE = 4; // logical px -> canvas px; keeps text and lines crisp
 
@@ -57,13 +57,7 @@ const STYLES = {
         ...rect(4, -2, 4, 2, "h"),
         ...rect(4, 0, 4, 1, "x"),
     ],
-    cap: [
-        ...rect(2, 1, 6, 1, "x"),
-        ...rect(2, 2, 8, 2, "x"),
-        ...rect(7, 4, 4, 1, "x"),
-        [11, 4, "o"],
-        [6, 2, "w"],
-    ],
+    cap: [...rect(2, 1, 6, 1, "x"), ...rect(2, 2, 8, 2, "x"), ...rect(7, 4, 4, 1, "x"), [11, 4, "o"], [6, 2, "w"]],
 };
 
 function rect(x, y, w, h, code) {
@@ -120,8 +114,7 @@ function brickWall(ctx) {
     ctx.fillStyle = "#e07a5f";
     ctx.fillRect(0, 0, W, 34);
     ctx.fillStyle = "#c9654c";
-    for (let y = 4; y < 34; y += 4)
-        for (let x = (y / 4) % 2 ? 0 : 4; x < W; x += 8) ctx.fillRect(x, y, 1, 4);
+    for (let y = 4; y < 34; y += 4) for (let x = (y / 4) % 2 ? 0 : 4; x < W; x += 8) ctx.fillRect(x, y, 1, 4);
     for (let y = 4; y < 34; y += 4) ctx.fillRect(0, y, W, 1);
     ctx.fillStyle = "#8c3f3a";
     ctx.fillRect(0, 0, W, 4);
@@ -391,11 +384,100 @@ function emote(ctx, x, y, icon) {
     ctx.fillText(icon, x, y - 4.2);
 }
 
-export function render(ctx, bg, world, t, fx) {
+// Camera that fits the playground plus every built room into the 16:9 view.
+export function targetCamera(world) {
+    const b = bounds(world);
+    const pad = b.w > W || b.h > H ? 6 : 0;
+    const z = Math.min(W / (b.w + pad * 2), H / (b.h + pad * 2));
+    return {
+        z,
+        x: b.x - pad - (W / z - b.w - pad * 2) / 2,
+        y: b.y - pad - (H / z - b.h - pad * 2) / 2,
+    };
+}
+
+export function stepCamera(cam, target, dt) {
+    const k = Math.min(1, dt * 2.5);
+    for (const key of ["x", "y", "z"]) cam[key] += (target[key] - cam[key]) * k;
+}
+
+// World coordinates -> fraction of the view (0..1), for DOM overlays.
+export const toView = (cam, x, y) => ({ x: ((x - cam.x) * cam.z) / W, y: ((y - cam.y) * cam.z) / H });
+
+const images = new Map();
+function roomImage(src) {
+    if (!images.has(src)) {
+        const img = new Image();
+        img.src = src;
+        images.set(src, img);
+    }
+    const img = images.get(src);
+    return img.complete && img.naturalWidth ? img : null;
+}
+
+function drawRoom(ctx, room, t) {
+    const r = roomRect(room);
+    const inset = 3;
+    ctx.fillStyle = "#6f4b33";
+    ctx.fillRect(r.x + inset - 1, r.y + inset - 1, r.w - inset * 2 + 2, r.h - inset * 2 + 2);
+    const img = room.art && roomImage(room.art);
+    if (img) {
+        ctx.imageSmoothingEnabled = false;
+        ctx.drawImage(img, r.x + inset, r.y + inset, r.w - inset * 2, r.h - inset * 2);
+    } else {
+        ctx.fillStyle = room.floor;
+        ctx.fillRect(r.x + inset, r.y + inset, r.w - inset * 2, r.h - inset * 2);
+        ctx.fillStyle = room.accent;
+        ctx.globalAlpha = 0.35;
+        for (let y = r.y + 8; y < r.y + r.h - 6; y += 8)
+            for (let x = r.x + 8 + ((y / 8) % 2) * 4; x < r.x + r.w - 6; x += 8) ctx.fillRect(x, y, 2, 2);
+        ctx.globalAlpha = 1;
+        ctx.font = "22px system-ui, 'Apple Color Emoji', 'Noto Color Emoji', sans-serif";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(room.emoji, r.x + r.w / 2, r.y + r.h / 2 - 2);
+    }
+    // Scaffolding while the room is still being painted.
+    if (room.pending) {
+        ctx.strokeStyle = "#ffd23f";
+        ctx.lineWidth = 1;
+        for (let x = r.x + 8; x < r.x + r.w - 4; x += 10) {
+            ctx.beginPath();
+            ctx.moveTo(x, r.y + r.h - 6);
+            ctx.lineTo(x + 6, r.y + 10);
+            ctx.stroke();
+        }
+        ctx.fillStyle = "#2b2140cc";
+        ctx.fillRect(r.x + 10, r.y + r.h / 2 + 10, r.w - 20, 10);
+        ctx.fillStyle = "#ffd23f";
+        ctx.fillRect(r.x + 12, r.y + r.h / 2 + 12, (t * 18) % (r.w - 24), 6);
+    }
+    // Name sign
+    ctx.font = "bold 6px Nunito, system-ui, sans-serif";
+    const label = `${room.emoji} ${room.name}`;
+    const w = Math.min(ctx.measureText(label).width + 8, r.w - 8);
+    ctx.fillStyle = "#fffdf8";
+    ctx.strokeStyle = "#2b2140";
+    ctx.lineWidth = 0.7;
+    ctx.beginPath();
+    ctx.roundRect(r.x + r.w / 2 - w / 2, r.y + 5, w, 9, 3);
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = "#2b2140";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(label, r.x + r.w / 2, r.y + 9.8, r.w - 12);
+}
+
+export function render(ctx, bg, world, t, fx, cam) {
     ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.drawImage(bg, 0, 0);
-    ctx.setTransform(SCALE, 0, 0, SCALE, 0, 0);
+    ctx.fillStyle = "#8ac75f";
+    ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+    const z = SCALE * cam.z;
+    ctx.setTransform(z, 0, 0, z, -cam.x * z, -cam.y * z);
     ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(bg, 0, 0, W, H);
+    for (const room of world.rooms) drawRoom(ctx, room, t);
     for (const m of world.chalk) chalkMark(ctx, m);
     for (const s of world.sand) sandCastle(ctx, s);
     bell(ctx, fx.ringingUntil > t * 1000, t);

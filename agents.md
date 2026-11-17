@@ -53,11 +53,18 @@ An unknown key counts as `sit_and_watch`.
 | `swing` | swing on the swings |
 | `make_rule` | make up a rule (the line your kid says becomes the rule) |
 | `sit_and_watch` | sit and watch |
+| `build` | build a brand-new place next to the playground (offered only when there is room; at most once every 8 minutes) |
+| `go_<room>` | walk to a place the kids built |
+| `do_<room>_<activity>` | do one of that place's activities, e.g. `do_r1_wake_dragon` |
 | `invite_<kid>` | invite another kid to play together |
 | `copy_<kid>` | copy whatever that kid just did |
 | `chase_<kid>` | chase that kid |
 
-`<kid>` is one of `juno`, `ravi`, `mia`, `toby` (never yourself).
+`<kid>` is one of `juno`, `ravi`, `mia`, `toby` (never yourself). Room keys (`r1`, `r2`, …) and their activities appear in the list you receive once someone has built a place.
+
+## The world grows
+
+When a kid chooses `build`, a text model invents the place (name, look and three activities) and an image model paints it as pixel art. The playground expands, every kid can go there and do its activities, and the world is saved in the visitor's browser for the next recess, up to eight places.
 
 ## Models the house kids use
 
@@ -66,4 +73,5 @@ An unknown key counts as `sit_and_watch`.
 | Choose each kid's action, with a probability for every option | `microsoft/microsoft-decision-1` (or another decision model on `POST /alpha/decisions`) |
 | Write what each kid says | `openai/gpt-5-nano` |
 | Judge whether the kids are playing | `respan/span-01-lite` |
-| Write Rulebook entries | `openai/gpt-6-luna` |
+| Write Rulebook entries and design new places | `openai/gpt-6-luna` |
+| Paint new places | `black-forest-labs/flux.2-klein-4b` |
